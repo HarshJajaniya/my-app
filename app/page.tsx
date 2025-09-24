@@ -1,103 +1,291 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+import { useState, useRef, useEffect, FormEvent } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  PlusIcon,
+  MessageSquareIcon,
+  SettingsIcon,
+  UserIcon,
+} from "lucide-react";
+
+type Role = "user" | "assistant" | "system";
+
+interface ChatMessage {
+  role: Role;
+  content: string;
+}
+
+interface ChatSession {
+  id: string;
+  title: string;
+  messages: ChatMessage[];
+}
+
+export default function ChatPage() {
+  const [sessions, setSessions] = useState<ChatSession[]>([]);
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+
+  const CLOUDINARY_UPLOAD_PRESET =
+    process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET!;
+  const CLOUDINARY_CLOUD_NAME = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME!;
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, loading]);
+
+  useEffect(() => {
+    if (currentSessionId) {
+      const session = sessions.find((s) => s.id === currentSessionId);
+      if (session) setMessages(session.messages);
+    }
+  }, [currentSessionId, sessions]);
+
+  const handleNewChat = () => {
+    const newSession: ChatSession = {
+      id: Date.now().toString(),
+      title: `New Chat ${sessions.length + 1}`,
+      messages: [],
+    };
+    setSessions([newSession, ...sessions]);
+    setCurrentSessionId(newSession.id);
+    setMessages([]);
+  };
+
+  const handleSelectChat = (sessionId: string) => {
+    setCurrentSessionId(sessionId);
+  };
+
+  const uploadFileToCloudinary = async (file: File) => {
+    setUploading(true);
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
+
+    const res = await fetch(
+      `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/upload`,
+      { method: "POST", body: formData }
+    );
+
+    const data = await res.json();
+    setUploading(false);
+
+    if (!data.secure_url) throw new Error("File upload failed");
+    return data.secure_url;
+  };
+
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    if ((!input.trim() && !uploading) || loading) return;
+
+    const userMessage: ChatMessage = { role: "user", content: input.trim() };
+    setMessages((prev) => [...prev, userMessage]);
+    setInput("");
+    setLoading(true);
+
+    try {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: userMessage.content }),
+      });
+      const data = await res.json();
+
+      const assistantMessage: ChatMessage = {
+        role: "assistant",
+        content: data.choices?.[0]?.message?.content || "No response",
+      };
+
+      const updatedMessages = [...messages, userMessage, assistantMessage];
+      setMessages(updatedMessages);
+
+      setSessions((prev) =>
+        prev.map((s) =>
+          s.id === currentSessionId ? { ...s, messages: updatedMessages } : s
+        )
+      );
+    } catch (err) {
+      console.error("Failed to send message:", err);
+      setMessages((prev) => [
+        ...prev,
+        { role: "system", content: "Error: Failed to get a response." },
+      ]);
+    }
+
+    setLoading(false);
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const fileUrl = await uploadFileToCloudinary(file);
+
+      const userMessage: ChatMessage = {
+        role: "user",
+        content: `📎 File: ${fileUrl}`,
+      };
+
+      setMessages((prev) => [...prev, userMessage]);
+      setInput("");
+
+      setLoading(true);
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: fileUrl }),
+      });
+
+      const data = await res.json();
+      const assistantMessage: ChatMessage = {
+        role: "assistant",
+        content: data.choices?.[0]?.message?.content || "No response",
+      };
+
+      const updatedMessages = [...messages, userMessage, assistantMessage];
+      setMessages(updatedMessages);
+
+      setSessions((prev) =>
+        prev.map((s) =>
+          s.id === currentSessionId ? { ...s, messages: updatedMessages } : s
+        )
+      );
+    } catch (err) {
+      console.error("File upload failed:", err);
+      setMessages((prev) => [
+        ...prev,
+        { role: "system", content: "Error: File upload failed." },
+      ]);
+    }
+    setLoading(false);
+  };
+
   return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+    <div className="flex flex-col h-screen bg-[#202123] text-white">
+      {/* Navbar */}
+      <div className="flex items-center justify-between px-6 py-4 bg-[#343541] border-b border-gray-800">
+        <h1 className="text-lg font-bold">ChatGPT Clone</h1>
+        <Button className="bg-blue-500 hover:bg-blue-600 px-4 py-2 rounded">
+          Share
+        </Button>
+      </div>
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+      <div className="flex flex-1 overflow-hidden">
+        {/* Sidebar */}
+        <div className="flex flex-col w-72 bg-[#202123] border-r border-gray-800">
+          <div className="p-4 border-b border-gray-800">
+            <Button
+              onClick={handleNewChat}
+              className="w-full bg-[#343541] hover:bg-[#444654] flex items-center gap-2 px-4 py-2 rounded"
+            >
+              <PlusIcon className="w-4 h-4" />
+              New Chat
+            </Button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-2">
+            {sessions.map((session) => (
+              <button
+                key={session.id}
+                onClick={() => handleSelectChat(session.id)}
+                className={`w-full text-left p-3 rounded hover:bg-[#343541] transition-colors ${
+                  currentSessionId === session.id ? "bg-[#343541]" : ""
+                }`}
+              >
+                <MessageSquareIcon className="inline-block w-4 h-4 mr-2" />
+                {session.title}
+              </button>
+            ))}
+          </div>
+
+          <div className="p-4 border-t border-gray-800 space-y-2">
+            <Button className="w-full bg-[#343541] hover:bg-[#444654] flex items-center gap-2 px-4 py-2 rounded">
+              <SettingsIcon className="w-4 h-4" />
+              Settings
+            </Button>
+            <Button className="w-full bg-[#343541] hover:bg-[#444654] flex items-center gap-2 px-4 py-2 rounded">
+              <UserIcon className="w-4 h-4" />
+              Account
+            </Button>
+          </div>
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+
+        {/* Chat Area */}
+        <div className="flex flex-col flex-1 overflow-hidden">
+          <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-4">
+            {messages.map((msg, index) => (
+              <div
+                key={index}
+                className={`flex ${
+                  msg.role === "user" ? "justify-end" : "justify-start"
+                }`}
+              >
+                <div
+                  className={`max-w-[70%] p-4 rounded-lg whitespace-pre-wrap ${
+                    msg.role === "user"
+                      ? "bg-blue-500 text-white"
+                      : "bg-[#343541] text-white"
+                  }`}
+                >
+                  {msg.content}
+                </div>
+              </div>
+            ))}
+
+            {loading && (
+              <div className="flex justify-start">
+                <div className="max-w-[70%] p-4 rounded-lg bg-[#343541] text-white">
+                  Thinking...
+                </div>
+              </div>
+            )}
+            <div ref={chatEndRef} />
+          </div>
+
+          {/* Input Area */}
+          <form
+            onSubmit={handleSubmit}
+            className="p-4 border-t border-gray-800 bg-[#343541] flex items-center gap-2"
+          >
+            <label
+              htmlFor="file-upload"
+              className="cursor-pointer flex items-center justify-center w-10 h-10 bg-[#444654] rounded-full hover:bg-[#55585e]"
+            >
+              <PlusIcon className="w-5 h-5 text-white" />
+            </label>
+            <input
+              id="file-upload"
+              type="file"
+              onChange={handleFileChange}
+              className="hidden"
+              disabled={loading || uploading}
+            />
+
+            <Input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="Send a message..."
+              disabled={loading}
+              className="flex-1 rounded-full bg-[#40414f] border-none text-white placeholder-gray-400 px-4 py-2"
+            />
+
+            <Button
+              type="submit"
+              disabled={loading || !input.trim()}
+              className="bg-blue-500 hover:bg-blue-600 rounded-full px-4 py-2"
+            >
+              Send
+            </Button>
+          </form>
+        </div>
+      </div>
     </div>
   );
 }
