@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import AuthWrapper from "@/components/AuthWrapper";
 import AccountButton from "@/components/AccountButton";
-import ThemeToggleButton from "@/components/ThemeToggleButton";
+// import ThemeToggleButton from "@/components/ThemeToggleButton";
 
 import {
   PlusIcon,
@@ -229,7 +229,7 @@ export default function ChatPage() {
               </div>
 
               <div className="p-4 border-t border-gray-800 space-y-2">
-                <ThemeToggleButton />
+                {/* <ThemeToggleButton /> */}
                 <AccountButton />
               </div>
             </div>
